@@ -48,10 +48,6 @@ func main() {
 		klog.Fatalf("Failed to create OpenShift project client: %v", err)
 	}
 
-	// Get the target group name from environment variable
-	targetGroupName := controller.GetTargetGroupName()
-	klog.Infof("Watching for changes to group: %s", targetGroupName)
-
 	// Create and start the controller
 	ctrl := controller.NewController(userClient, projectClient)
 

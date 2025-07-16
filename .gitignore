@@ -2,6 +2,8 @@ controller
 !pkg/controller
 main
 rosa-namespace-provisioner
+SESSION_SUMMARY.md
+.DS_Store
 
 # Test coverage files
 coverage.out

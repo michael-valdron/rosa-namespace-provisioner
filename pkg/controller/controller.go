@@ -74,7 +74,7 @@ func NewController(userClient userclient.Interface, projectClient projectclient.
 			controller.handleGroup(oldObj.(*userv1.Group), newObj.(*userv1.Group))
 		},
 		DeleteFunc: func(obj interface{}) {
-			// We only care about updates, so we'll ignore Delete events
+			// We don't care about deletes for right now, so we'll ignore Delete events
 			group := obj.(*userv1.Group)
 			klog.V(4).Infof("Group %s was deleted (ignoring)", group.Name)
 		},
