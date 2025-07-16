@@ -1,4 +1,4 @@
-package main
+package controller
 
 import (
 	"context"
@@ -50,9 +50,9 @@ func TestGetTargetGroupName(t *testing.T) {
 				os.Setenv("TARGET_GROUP_NAME", tt.envValue)
 			}
 
-			got := getTargetGroupName()
+			got := GetTargetGroupName()
 			if got != tt.want {
-				t.Errorf("getTargetGroupName() = %v, want %v", got, tt.want)
+				t.Errorf("GetTargetGroupName() = %v, want %v", got, tt.want)
 			}
 		})
 	}

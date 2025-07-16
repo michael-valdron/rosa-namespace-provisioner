@@ -1,4 +1,5 @@
 controller
+!pkg/controller
 main
 rosa-namespace-provisioner
 
