@@ -8,7 +8,7 @@ import (
 
 	projectclient "github.com/openshift/client-go/project/clientset/versioned"
 	userclient "github.com/openshift/client-go/user/clientset/versioned"
-	"github.com/your-org/rosa-namespace-provisioner/pkg/controller"
+	"github.com/redhat-ai-dev/rosa-namespace-provisioner/pkg/controller"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
