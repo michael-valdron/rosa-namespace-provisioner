@@ -21,10 +21,16 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	// The specific group name to watch for
-	targetGroupName = "redhat-ai-dev-edit-users"
-)
+func getTargetGroupName() string {
+	groupName := os.Getenv("TARGET_GROUP_NAME")
+	if groupName == "" {
+		return "redhat-ai-dev-edit-users" // default value
+	}
+	return groupName
+}
+
+// The specific group name to watch for
+var targetGroupName = getTargetGroupName()
 
 type Controller struct {
 	userClient    userclient.Interface
@@ -60,13 +66,13 @@ func NewController(userClient userclient.Interface, projectClient projectclient.
 	// Add event handlers
 	informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc: func(obj interface{}) {
-			// We only care about updates, so we'll ignore Add events
+			// Handle group creation - treat all users as new additions
 			group := obj.(*userv1.Group)
-			klog.V(4).Infof("Group %s was added (ignoring)", group.Name)
+			controller.handleGroup(nil, group)
 		},
 		UpdateFunc: func(oldObj, newObj interface{}) {
 			// This is the main event we're interested in
-			controller.handleGroupUpdate(oldObj.(*userv1.Group), newObj.(*userv1.Group))
+			controller.handleGroup(oldObj.(*userv1.Group), newObj.(*userv1.Group))
 		},
 		DeleteFunc: func(obj interface{}) {
 			// We only care about updates, so we'll ignore Delete events
@@ -78,22 +84,25 @@ func NewController(userClient userclient.Interface, projectClient projectclient.
 	return controller
 }
 
-func (c *Controller) handleGroupUpdate(oldGroup, newGroup *userv1.Group) {
-	// Only process if this is the specific group we're watching
-	if newGroup.Name != targetGroupName {
-		return
+func (c *Controller) handleGroup(oldGroup, newGroup *userv1.Group) {
+	if oldGroup == nil {
+		klog.Infof("Detected creation of Group: %s", newGroup.Name)
+	} else {
+		klog.Infof("Detected update to Group: %s", newGroup.Name)
 	}
 
-	klog.Infof("Detected update to Group: %s", newGroup.Name)
-
 	// Log the changes for debugging purposes
-	klog.V(2).Infof("Old Group ResourceVersion: %s", oldGroup.ResourceVersion)
+	if oldGroup != nil {
+		klog.V(2).Infof("Old Group ResourceVersion: %s", oldGroup.ResourceVersion)
+	}
 	klog.V(2).Infof("New Group ResourceVersion: %s", newGroup.ResourceVersion)
 
 	// Check if users were added or removed
 	oldUsers := make(map[string]bool)
-	for _, user := range oldGroup.Users {
-		oldUsers[user] = true
+	if oldGroup != nil {
+		for _, user := range oldGroup.Users {
+			oldUsers[user] = true
+		}
 	}
 
 	newUsers := make(map[string]bool)
@@ -169,7 +178,7 @@ func (c *Controller) handleGroupUpdate(oldGroup, newGroup *userv1.Group) {
 	}
 
 	if len(addedUsers) == 0 && len(removedUsers) == 0 {
-		klog.V(2).Infof("Group %s was updated but no user changes detected", newGroup.Name)
+		klog.V(2).Infof("Group %s processed but no users to create projects for", newGroup.Name)
 	}
 }
 

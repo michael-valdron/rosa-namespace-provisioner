@@ -1,0 +1,14 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: rosa-namespace-provisioner
+
+resources:
+- deployment.yaml
+- serviceaccount.yaml
+- rbac.yaml
+
+images:
+- name: rosa-namespace-provisioner
+  newName: quay.io/redhat-ai-dev/rosa-namespace-provisioner
+  newTag: latest 
