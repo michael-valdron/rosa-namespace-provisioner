@@ -1,5 +1,5 @@
 # Use UBI9 Go toolset for building
-FROM registry.access.redhat.com/ubi9/go-toolset:1.23 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.24 AS builder
 
 WORKDIR /opt/app-root/src
 
@@ -11,6 +11,7 @@ RUN go mod download
 
 # Copy source code
 COPY main.go ./
+COPY pkg/ pkg/
 
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o controller main.go

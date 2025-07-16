@@ -16,7 +16,7 @@ A Kubernetes controller that watches for updates to a specific OpenShift Group r
 ## Prerequisites
 
 - OpenShift or ROSA cluster access
-- Go 1.23 or later
+- Go 1.24 or later
 - Docker or Podman (for containerized deployment)
 - Cluster admin permissions (for RBAC setup)
 
@@ -189,6 +189,23 @@ The core project management logic is implemented in the `handleGroupUpdate` func
 - Adding additional role bindings
 - Configuring network policies
 - Setting up monitoring or logging
+
+## CI/CD
+
+The project includes GitHub Actions workflows for automated testing and publishing:
+
+### PR Validation (`.github/workflows/pr.yml`)
+- Triggers on pull requests to `main` branch
+- Runs unit tests and code validation
+- Builds container image using Docker
+- Validates the build without publishing
+
+### Image Publishing (`.github/workflows/publish.yml`)
+- Triggers on pushes to `main` branch
+- Runs full test suite
+- Builds and publishes container images to `quay.io/redhat-ai-dev/rosa-namespace-provisioner`
+- Tags images with both `latest` and commit SHA
+- Requires `QUAY_USERNAME` and `QUAY_PASSWORD` secrets to be configured in GitHub repository settings
 
 ## Troubleshooting
 
