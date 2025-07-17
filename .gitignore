@@ -1,5 +1,4 @@
-controller
-!pkg/controller
+bin/
 main
 rosa-namespace-provisioner
 SESSION_SUMMARY.md

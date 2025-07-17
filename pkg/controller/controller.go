@@ -144,6 +144,8 @@ func (c *Controller) handleGroup(oldGroup, newGroup *userv1.Group) {
 					_, err = c.projectClient.ProjectV1().Projects().Create(context.Background(), project, metav1.CreateOptions{})
 					if err != nil {
 						klog.Errorf("Error creating project for user %s: %v", user, err)
+					} else {
+						klog.Infof("Successfully created project %s for user %s", user, user)
 					}
 				} else {
 					// Just log the error for now
