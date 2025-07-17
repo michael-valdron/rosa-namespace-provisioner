@@ -10,18 +10,18 @@ jobs:
     
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
       
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.1.0
       with:
         go-version: '1.24'
         
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@c47758b77c9736f4b2ef4073d4d51994fabfe349 # v3.7.1
         
     - name: Cache Go modules
-      uses: actions/cache@v4
+      uses: actions/cache@6849a6489cac3c661b3c7e0322f4ad8890e3e52e # v4.1.2
       with:
         path: |
           ~/.cache/go-build
