@@ -1,0 +1,109 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  creationTimestamp: null
+  name: projects.project.openshift.io
+spec:
+  conversion:
+    strategy: None
+  group: project.openshift.io
+  names:
+    kind: Project
+    listKind: ProjectList
+    plural: projects
+    singular: project
+  scope: Cluster
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Projects are the unit of isolation and collaboration in OpenShift. A project has one or more members, a quota on the resources that the project may consume, and the security controls on the resources in the project. Within a project, members may have different roles - project administrators can set membership, editors can create and manage the resources, and viewers can see but not access running containers. In a normal cluster project administrators are not able to alter their quotas - that is restricted to cluster administrators.
+
+          Listing or watching projects will return only projects the user has the reader role on.
+
+          An OpenShift project is an alternative representation of a Kubernetes namespace. Projects are exposed as editable to end users while namespaces are not. Direct creation of a project is typically restricted to administrators, while end users should use the requestproject resource.
+
+          Compatibility level 1: Stable within a major release for a minimum of 12 months or 3 minor releases (whichever is longer).
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the behavior of the Namespace.
+            properties:
+              finalizers:
+                description: Finalizers is an opaque list of values that must be empty
+                  to permanently remove object from storage
+                items:
+                  type: string
+                type: array
+            type: object
+          status:
+            description: Status describes the current status of a Namespace
+            properties:
+              conditions:
+                description: Represents the latest available observations of the project
+                  current state.
+                items:
+                  description: NamespaceCondition contains details about state of
+                    namespace.
+                  properties:
+                    lastTransitionTime:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                    reason:
+                      type: string
+                    status:
+                      description: Status of the condition, one of True, False, Unknown.
+                      type: string
+                    type:
+                      description: |-
+                        Type of namespace controller condition.
+
+                        Possible enum values:
+                         - `"NamespaceContentRemaining"` contains information about resources remaining in a namespace.
+                         - `"NamespaceDeletionContentFailure"` contains information about namespace deleter errors during deletion of resources.
+                         - `"NamespaceDeletionDiscoveryFailure"` contains information about namespace deleter errors during resource discovery.
+                         - `"NamespaceDeletionGroupVersionParsingFailure"` contains information about namespace deleter errors parsing GV for legacy types.
+                         - `"NamespaceFinalizersRemaining"` contains information about which finalizers are on resources remaining in a namespace.
+                      type: string
+                  required:
+                  - status
+                  - type
+                  type: object
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              phase:
+                description: |-
+                  Phase is the current lifecycle phase of the project
+
+                  Possible enum values:
+                   - `"Active"` means the namespace is available for use in the system
+                   - `"Terminating"` means the namespace is undergoing graceful termination
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources: {}
+status:
+  acceptedNames:
+    kind: ""
+    plural: ""
+  conditions: null
+  storedVersions:
+  - v1
