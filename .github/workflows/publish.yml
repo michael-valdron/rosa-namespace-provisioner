@@ -46,7 +46,6 @@ jobs:
     - name: Set up container metadata
       id: meta
       run: |
-        echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" >> $GITHUB_OUTPUT
         echo "commit_sha=${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
         echo "timestamp=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
         
@@ -56,7 +55,7 @@ jobs:
     - name: Login to Quay.io
       uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
       with:
-        registry: ${{ env.REGISTRY }}
+        registry: quay.io
         username: ${{ secrets.QUAY_USERNAME }}
         password: ${{ secrets.QUAY_PASSWORD }}
         
@@ -67,8 +66,8 @@ jobs:
         platforms: linux/amd64
         push: true
         tags: |
-          ${{ steps.meta.outputs.image }}:latest
-          ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.commit_sha }}
+          quay.io/redhat-ai-dev/rosa-namespace-provisioner:latest
+          quay.io/redhat-ai-dev/rosa-namespace-provisioner:${{ steps.meta.outputs.commit_sha }}
         labels: |
           org.opencontainers.image.source=https://github.com/${{ github.repository }}
           org.opencontainers.image.revision=${{ github.sha }}
@@ -77,6 +76,5 @@ jobs:
     - name: Output image details
       run: |
         echo "🚀 Successfully published container images:"
-        echo "📦 ${{ steps.meta.outputs.image }}:latest"
-        echo "📦 ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.commit_sha }}"
-        echo "🔗 Image registry: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}" 
+        echo "📦 quay.io/redhat-ai-dev/rosa-namespace-provisioner:latest"
+        echo "📦 quay.io/redhat-ai-dev/rosa-namespace-provisioner:${{ steps.meta.outputs.commit_sha }}"
