@@ -19,6 +19,8 @@ spec:
       - name: controller
         image: rosa-namespace-provisioner:latest
         imagePullPolicy: Always
+        command:
+        - ./controller
         args:
         - --v=2
         resources:
@@ -31,5 +33,4 @@ spec:
         securityContext:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
-          runAsNonRoot: true
-          runAsUser: 1000 
+          runAsNonRoot: true 
