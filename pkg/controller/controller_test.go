@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -9,9 +10,12 @@ import (
 	userv1 "github.com/openshift/api/user/v1"
 	projectfake "github.com/openshift/client-go/project/clientset/versioned/fake"
 	userfake "github.com/openshift/client-go/user/clientset/versioned/fake"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 func TestGetTargetGroupName(t *testing.T) {
@@ -195,8 +199,14 @@ func TestController_handleGroup(t *testing.T) {
 
 			// Create fake clients
 			var projectObjects []runtime.Object
+			var namespaceObjects []runtime.Object
 			for _, projectName := range tt.existingProjects {
 				projectObjects = append(projectObjects, &projectv1.Project{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: projectName,
+					},
+				})
+				namespaceObjects = append(namespaceObjects, &corev1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: projectName,
 					},
@@ -205,11 +215,13 @@ func TestController_handleGroup(t *testing.T) {
 
 			userClient := userfake.NewSimpleClientset()
 			projectClient := projectfake.NewSimpleClientset(projectObjects...)
+			rbacClient := fake.NewSimpleClientset(namespaceObjects...).RbacV1()
 
 			// Create controller
 			controller := &Controller{
 				userClient:    userClient,
 				projectClient: projectClient,
+				rbacClient:    rbacClient,
 			}
 
 			// Call handleGroup
@@ -269,6 +281,226 @@ func TestController_handleGroup(t *testing.T) {
 	}
 }
 
+func TestController_createRoleBinding(t *testing.T) {
+	tests := []struct {
+		name  string
+		users []struct {
+			user    string
+			project string
+		}
+		existingRoleBindings []struct {
+			name    string
+			project string
+		}
+		shouldError bool
+	}{
+		{
+			name: "Create RoleBindings for target users their projects",
+			users: []struct {
+				user    string
+				project string
+			}{
+				{
+					user:    "bob",
+					project: "bob-dev",
+				},
+				{
+					user:    "john",
+					project: "ai-dev",
+				},
+				{
+					user:    "sarah",
+					project: "workspace",
+				},
+			},
+		},
+		{
+			name: "Create RoleBindings for target users their projects along existing RoleBindings",
+			users: []struct {
+				user    string
+				project string
+			}{
+				{
+					user:    "bob",
+					project: "bob-dev",
+				},
+				{
+					user:    "john",
+					project: "ai-dev",
+				},
+				{
+					user:    "sarah",
+					project: "workspace",
+				},
+			},
+			existingRoleBindings: []struct {
+				name    string
+				project string
+			}{
+				{
+					name:    "ai-dev-edit",
+					project: "ai-dev-testing",
+				},
+				{
+					name:    "project-edit",
+					project: "dev",
+				},
+			},
+		},
+		{
+			name: "Attempt to create an existing RoleBinding",
+			users: []struct {
+				user    string
+				project string
+			}{
+				{
+					user:    "john",
+					project: "ai-dev",
+				},
+			},
+			existingRoleBindings: []struct {
+				name    string
+				project string
+			}{
+				{
+					name:    "ai-dev-edit",
+					project: "ai-dev",
+				},
+			},
+			shouldError: true,
+		},
+		{
+			name: "Attempt to create two RoleBindings for the same project",
+			users: []struct {
+				user    string
+				project string
+			}{
+				{
+					user:    "john",
+					project: "ai-dev",
+				},
+				{
+					user:    "mike",
+					project: "ai-dev",
+				},
+			},
+			shouldError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create addedUsers
+			addedUsers := make(map[string]bool)
+			for _, userinfo := range tt.users {
+				addedUsers[userinfo.user] = false
+			}
+
+			// Create addedProjects
+			addedProjects := make(map[string]bool)
+			for _, userinfo := range tt.users {
+				addedProjects[userinfo.project] = false
+			}
+
+			// Create addedRoleBindings
+			addedRoleBindings := make(map[string]bool)
+			for _, roleBinding := range tt.existingRoleBindings {
+				addedRoleBindings[roleBinding.name] = false
+			}
+
+			// Create fake user objects and their project/namespace objects
+			var userObjects []runtime.Object
+			var projectObjects []runtime.Object
+			var kubernetesObjects []runtime.Object
+			for _, userinfo := range tt.users {
+				if !addedUsers[userinfo.user] {
+					userObjects = append(userObjects, &userv1.User{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: userinfo.user,
+						},
+					})
+					addedUsers[userinfo.user] = true
+				}
+				if !addedProjects[userinfo.project] {
+					projectObjects = append(projectObjects, &projectv1.Project{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: userinfo.project,
+						},
+					})
+					kubernetesObjects = append(kubernetesObjects, &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: userinfo.project,
+						},
+					})
+					addedProjects[userinfo.project] = true
+				}
+			}
+
+			// Create existing RoleBindings objects and their project/namespace objects
+			for _, roleBinding := range tt.existingRoleBindings {
+				if !addedRoleBindings[roleBinding.name] {
+					kubernetesObjects = append(kubernetesObjects, &rbacv1.RoleBinding{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      roleBinding.name,
+							Namespace: roleBinding.project,
+						},
+					})
+					addedRoleBindings[roleBinding.name] = true
+				}
+				if !addedProjects[roleBinding.project] {
+					projectObjects = append(projectObjects, &projectv1.Project{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: roleBinding.project,
+						},
+					})
+					kubernetesObjects = append(kubernetesObjects, &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: roleBinding.project,
+						},
+					})
+					addedProjects[roleBinding.project] = true
+				}
+			}
+
+			// Create fake clients
+			userClient := userfake.NewSimpleClientset(userObjects...)
+			projectClient := projectfake.NewSimpleClientset(projectObjects...)
+			rbacClient := fake.NewSimpleClientset(kubernetesObjects...).RbacV1()
+
+			// Create controller
+			controller := &Controller{
+				userClient:    userClient,
+				projectClient: projectClient,
+				rbacClient:    rbacClient,
+			}
+
+			errorCount := 0
+			for _, userinfo := range tt.users {
+				expectedRoleBindingName := fmt.Sprintf("%s-edit", userinfo.project)
+				err := controller.createRoleBinding(userinfo.user, userinfo.project)
+				if !tt.shouldError && err != nil {
+					t.Errorf("Expected RoleBinding %s to be created, but got error: %v", expectedRoleBindingName, err)
+					continue
+				} else if tt.shouldError && err != nil {
+					errorCount += 1
+					continue
+				}
+
+				_, err = controller.rbacClient.RoleBindings(userinfo.project).Get(ctx, expectedRoleBindingName, metav1.GetOptions{})
+				if err != nil {
+					t.Errorf("Expected RoleBinding %s to be found, but got error: %v", expectedRoleBindingName, err)
+				}
+			}
+
+			if tt.shouldError && errorCount == 0 {
+				t.Errorf("Expected case '%s' to receive error(s)", tt.name)
+			}
+		})
+	}
+}
+
 func TestController_handleGroupErrorHandling(t *testing.T) {
 	t.Run("should continue processing when project creation fails for one user", func(t *testing.T) {
 		ctx := context.Background()
@@ -279,13 +511,16 @@ func TestController_handleGroupErrorHandling(t *testing.T) {
 				Name: "alice",
 			},
 		}
+		existingNamespace := &corev1.Namespace{ObjectMeta: existingProject.ObjectMeta}
 
 		userClient := userfake.NewSimpleClientset()
 		projectClient := projectfake.NewSimpleClientset(existingProject)
+		rbacClient := fake.NewSimpleClientset(existingNamespace).RbacV1()
 
 		controller := &Controller{
 			userClient:    userClient,
 			projectClient: projectClient,
+			rbacClient:    rbacClient,
 		}
 
 		// Create group with users where one will conflict
@@ -328,8 +563,9 @@ func TestNewController(t *testing.T) {
 
 	userClient := userfake.NewSimpleClientset()
 	projectClient := projectfake.NewSimpleClientset()
+	rbacClient := fake.NewSimpleClientset().RbacV1()
 
-	controller := NewController(userClient, projectClient)
+	controller := NewController(userClient, projectClient, rbacClient)
 
 	if controller == nil {
 		t.Fatal("Expected controller to be created, but got nil")
@@ -341,6 +577,10 @@ func TestNewController(t *testing.T) {
 
 	if controller.projectClient != projectClient {
 		t.Error("Expected projectClient to be set correctly")
+	}
+
+	if controller.rbacClient != rbacClient {
+		t.Error("Expected rbacClient to be set correctly")
 	}
 
 	if controller.informer == nil {
