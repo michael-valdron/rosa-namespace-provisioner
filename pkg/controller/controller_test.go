@@ -28,7 +28,7 @@ func TestGetTargetGroupName(t *testing.T) {
 		{
 			name:     "environment variable empty",
 			envValue: "",
-			want:     "redhat-ai-dev-edit-users",
+			want:     defaultTargetGroupName,
 		},
 	}
 

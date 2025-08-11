@@ -17,11 +17,14 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// default value of the target group name
+const defaultTargetGroupName = "redhat-ai-dev-users"
+
 // GetTargetGroupName returns the target group name from environment variable or default
 func GetTargetGroupName() string {
 	groupName := os.Getenv("TARGET_GROUP_NAME")
 	if groupName == "" {
-		return "redhat-ai-dev-edit-users" // default value
+		return defaultTargetGroupName // default value
 	}
 	return groupName
 }
