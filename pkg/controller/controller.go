@@ -138,7 +138,7 @@ func (c *Controller) handleGroup(oldGroup, newGroup *userv1.Group) {
 			if err != nil {
 				if errors.IsNotFound(err) {
 					klog.Infof("Project %s not found for user %s", user, user)
-					// TODO: Create project logic could go here
+					// Create project
 					project := &projectv1.Project{
 						ObjectMeta: metav1.ObjectMeta{
 							Name: user,
