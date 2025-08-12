@@ -281,6 +281,126 @@ func TestController_handleGroup(t *testing.T) {
 	}
 }
 
+func TestController_createUserProject(t *testing.T) {
+	tests := []struct {
+		name             string
+		users            []string
+		existingProjects []string
+		shouldError      bool
+	}{
+		{
+			name:  "Create projects for target users",
+			users: []string{"bob", "john", "sarah"},
+		},
+		{
+			name:             "Create projects for target users along existing projects",
+			users:            []string{"bob", "john", "sarah"},
+			existingProjects: []string{"bob-dev", "ai-dev", "workspace"},
+		},
+		{
+			name:             "Attempt to create an existing project",
+			users:            []string{"bob"},
+			existingProjects: []string{"bob"},
+			shouldError:      true,
+		},
+		{
+			name:             "Attempt to create existing projects",
+			users:            []string{"bob", "john"},
+			existingProjects: []string{"bob", "john"},
+			shouldError:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create addedUsers
+			addedUsers := make(map[string]bool)
+			for _, user := range tt.users {
+				addedUsers[user] = false
+			}
+
+			// Create addedProjects
+			addedProjects := make(map[string]bool)
+			for _, project := range tt.existingProjects {
+				addedProjects[project] = false
+			}
+
+			// Create fake user objects and their project/namespace objects
+			var userObjects []runtime.Object
+			for _, user := range tt.users {
+				if !addedUsers[user] {
+					userObjects = append(userObjects, &userv1.User{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: user,
+						},
+					})
+					addedUsers[user] = true
+				}
+			}
+
+			// Create fake existing project/namespace objects
+			var projectObjects []runtime.Object
+			var namespaceObjects []runtime.Object
+			for _, project := range tt.existingProjects {
+				if !addedProjects[project] {
+					projectObjects = append(projectObjects, &projectv1.Project{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: project,
+						},
+					})
+					namespaceObjects = append(namespaceObjects, &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: project,
+						},
+					})
+					addedProjects[project] = true
+				}
+			}
+
+			// Create fake clients
+			userClient := userfake.NewSimpleClientset(userObjects...)
+			projectClient := projectfake.NewSimpleClientset(projectObjects...)
+			rbacClient := fake.NewSimpleClientset(namespaceObjects...).RbacV1()
+
+			// Create controller
+			controller := &Controller{
+				userClient:    userClient,
+				projectClient: projectClient,
+				rbacClient:    rbacClient,
+			}
+
+			errorCount := 0
+			for _, user := range tt.users {
+				expectedRoleBindingName := fmt.Sprintf("%s-edit", user)
+				err := controller.createUserProject(user)
+				if !tt.shouldError && err != nil {
+					t.Errorf("Expected project %s to be created, but got error: %v", user, err)
+					continue
+				} else if tt.shouldError && err != nil {
+					errorCount += 1
+					continue
+				}
+
+				_, err = controller.projectClient.ProjectV1().Projects().Get(ctx, user, metav1.GetOptions{})
+				if err != nil {
+					t.Errorf("Expected project %s to be found, but got error: %v", user, err)
+				}
+
+				_, err = controller.rbacClient.RoleBindings(user).Get(ctx, expectedRoleBindingName, metav1.GetOptions{})
+				if err != nil {
+					t.Errorf("Expected RoleBinding %s to be found, but got error: %v", expectedRoleBindingName, err)
+				}
+			}
+
+			if tt.shouldError && errorCount == 0 {
+				t.Errorf("Expected case '%s' to receive error(s)", tt.name)
+			}
+		})
+	}
+}
+
 func TestController_createRoleBinding(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -295,7 +415,7 @@ func TestController_createRoleBinding(t *testing.T) {
 		shouldError bool
 	}{
 		{
-			name: "Create RoleBindings for target users their projects",
+			name: "Create RoleBindings for target users and their projects",
 			users: []struct {
 				user    string
 				project string
@@ -315,7 +435,7 @@ func TestController_createRoleBinding(t *testing.T) {
 			},
 		},
 		{
-			name: "Create RoleBindings for target users their projects along existing RoleBindings",
+			name: "Create RoleBindings for target users and their projects along existing RoleBindings",
 			users: []struct {
 				user    string
 				project string
@@ -438,7 +558,7 @@ func TestController_createRoleBinding(t *testing.T) {
 				}
 			}
 
-			// Create existing RoleBindings objects and their project/namespace objects
+			// Create fake existing RoleBindings objects and their project/namespace objects
 			for _, roleBinding := range tt.existingRoleBindings {
 				if !addedRoleBindings[roleBinding.name] {
 					kubernetesObjects = append(kubernetesObjects, &rbacv1.RoleBinding{
