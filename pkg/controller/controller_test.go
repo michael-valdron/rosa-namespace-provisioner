@@ -62,345 +62,6 @@ func TestGetTargetGroupName(t *testing.T) {
 	}
 }
 
-func TestController_handleGroup(t *testing.T) {
-	tests := []struct {
-		name             string
-		oldGroup         *userv1.Group
-		newGroup         *userv1.Group
-		existingProjects []string
-		expectedCreated  []string
-		expectedDeleted  []string
-		shouldError      bool
-	}{
-		{
-			name:     "group creation with users",
-			oldGroup: nil,
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-group",
-				},
-				Users: []string{"alice", "bob"},
-			},
-			existingProjects: []string{},
-			expectedCreated:  []string{"alice", "bob"},
-			expectedDeleted:  []string{},
-		},
-		{
-			name:     "group creation empty",
-			oldGroup: nil,
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-group",
-				},
-				Users: []string{},
-			},
-			existingProjects: []string{},
-			expectedCreated:  []string{},
-			expectedDeleted:  []string{},
-		},
-		{
-			name: "user added to group",
-			oldGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "1",
-				},
-				Users: []string{"alice"},
-			},
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "2",
-				},
-				Users: []string{"alice", "bob"},
-			},
-			existingProjects: []string{},
-			expectedCreated:  []string{"bob"},
-			expectedDeleted:  []string{},
-		},
-		{
-			name: "user removed from group",
-			oldGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "1",
-				},
-				Users: []string{"alice", "bob"},
-			},
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "2",
-				},
-				Users: []string{"alice"},
-			},
-			existingProjects: []string{"bob"},
-			expectedCreated:  []string{},
-			expectedDeleted:  []string{"bob"},
-		},
-		{
-			name: "users added and removed",
-			oldGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "1",
-				},
-				Users: []string{"alice", "charlie"},
-			},
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "2",
-				},
-				Users: []string{"alice", "bob"},
-			},
-			existingProjects: []string{"charlie"},
-			expectedCreated:  []string{"bob"},
-			expectedDeleted:  []string{"charlie"},
-		},
-		{
-			name: "no changes",
-			oldGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "1",
-				},
-				Users: []string{"alice"},
-			},
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "test-group",
-					ResourceVersion: "2",
-				},
-				Users: []string{"alice"},
-			},
-			existingProjects: []string{},
-			expectedCreated:  []string{},
-			expectedDeleted:  []string{},
-		},
-		{
-			name:     "project already exists",
-			oldGroup: nil,
-			newGroup: &userv1.Group{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-group",
-				},
-				Users: []string{"alice"},
-			},
-			existingProjects: []string{"alice"},
-			expectedCreated:  []string{}, // Won't create because it already exists
-			expectedDeleted:  []string{},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-
-			// Create fake clients
-			var projectObjects []runtime.Object
-			var namespaceObjects []runtime.Object
-			for _, projectName := range tt.existingProjects {
-				projectObjects = append(projectObjects, &projectv1.Project{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: projectName,
-					},
-				})
-				namespaceObjects = append(namespaceObjects, &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: projectName,
-					},
-				})
-			}
-
-			userClient := userfake.NewSimpleClientset()
-			projectClient := projectfake.NewSimpleClientset(projectObjects...)
-			rbacClient := fake.NewSimpleClientset(namespaceObjects...).RbacV1()
-
-			// Create controller
-			controller := &Controller{
-				userClient:    userClient,
-				projectClient: projectClient,
-				rbacClient:    rbacClient,
-			}
-
-			// Call handleGroup
-			controller.handleGroup(tt.oldGroup, tt.newGroup)
-
-			// Verify created projects
-			for _, expectedProject := range tt.expectedCreated {
-				_, err := projectClient.ProjectV1().Projects().Get(ctx, expectedProject, metav1.GetOptions{})
-				if err != nil {
-					t.Errorf("Expected project %s to be created, but got error: %v", expectedProject, err)
-				}
-			}
-
-			// Verify deleted projects
-			for _, expectedDeleted := range tt.expectedDeleted {
-				_, err := projectClient.ProjectV1().Projects().Get(ctx, expectedDeleted, metav1.GetOptions{})
-				if !errors.IsNotFound(err) {
-					t.Errorf("Expected project %s to be deleted, but it still exists", expectedDeleted)
-				}
-			}
-
-			// Verify projects that should still exist
-			allProjects, err := projectClient.ProjectV1().Projects().List(ctx, metav1.ListOptions{})
-			if err != nil {
-				t.Fatalf("Failed to list projects: %v", err)
-			}
-
-			// Count expected projects after operations
-			expectedProjects := make(map[string]bool)
-
-			// Start with existing projects
-			for _, proj := range tt.existingProjects {
-				expectedProjects[proj] = true
-			}
-
-			// Add created projects
-			for _, proj := range tt.expectedCreated {
-				expectedProjects[proj] = true
-			}
-
-			// Remove deleted projects
-			for _, proj := range tt.expectedDeleted {
-				delete(expectedProjects, proj)
-			}
-
-			if len(allProjects.Items) != len(expectedProjects) {
-				t.Errorf("Expected %d projects after operations, but got %d", len(expectedProjects), len(allProjects.Items))
-			}
-
-			// Verify each remaining project is expected
-			for _, project := range allProjects.Items {
-				if !expectedProjects[project.Name] {
-					t.Errorf("Unexpected project %s found after operations", project.Name)
-				}
-			}
-		})
-	}
-}
-
-func TestController_createUserProject(t *testing.T) {
-	tests := []struct {
-		name             string
-		users            []string
-		existingProjects []string
-		shouldError      bool
-	}{
-		{
-			name:  "Create projects for target users",
-			users: []string{"bob", "john", "sarah"},
-		},
-		{
-			name:             "Create projects for target users along existing projects",
-			users:            []string{"bob", "john", "sarah"},
-			existingProjects: []string{"bob-dev", "ai-dev", "workspace"},
-		},
-		{
-			name:             "Attempt to create an existing project",
-			users:            []string{"bob"},
-			existingProjects: []string{"bob"},
-			shouldError:      true,
-		},
-		{
-			name:             "Attempt to create existing projects",
-			users:            []string{"bob", "john"},
-			existingProjects: []string{"bob", "john"},
-			shouldError:      true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-
-			// Create addedUsers
-			addedUsers := make(map[string]bool)
-			for _, user := range tt.users {
-				addedUsers[user] = false
-			}
-
-			// Create addedProjects
-			addedProjects := make(map[string]bool)
-			for _, project := range tt.existingProjects {
-				addedProjects[project] = false
-			}
-
-			// Create fake user objects and their project/namespace objects
-			var userObjects []runtime.Object
-			for _, user := range tt.users {
-				if !addedUsers[user] {
-					userObjects = append(userObjects, &userv1.User{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: user,
-						},
-					})
-					addedUsers[user] = true
-				}
-			}
-
-			// Create fake existing project/namespace objects
-			var projectObjects []runtime.Object
-			var namespaceObjects []runtime.Object
-			for _, project := range tt.existingProjects {
-				if !addedProjects[project] {
-					projectObjects = append(projectObjects, &projectv1.Project{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: project,
-						},
-					})
-					namespaceObjects = append(namespaceObjects, &corev1.Namespace{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: project,
-						},
-					})
-					addedProjects[project] = true
-				}
-			}
-
-			// Create fake clients
-			userClient := userfake.NewSimpleClientset(userObjects...)
-			projectClient := projectfake.NewSimpleClientset(projectObjects...)
-			rbacClient := fake.NewSimpleClientset(namespaceObjects...).RbacV1()
-
-			// Create controller
-			controller := &Controller{
-				userClient:    userClient,
-				projectClient: projectClient,
-				rbacClient:    rbacClient,
-			}
-
-			errorCount := 0
-			for _, user := range tt.users {
-				expectedRoleBindingName := fmt.Sprintf("%s-edit", user)
-				err := controller.createUserProject(user)
-				if !tt.shouldError && err != nil {
-					t.Errorf("Expected project %s to be created, but got error: %v", user, err)
-					continue
-				} else if tt.shouldError && err != nil {
-					errorCount += 1
-					continue
-				}
-
-				_, err = controller.projectClient.ProjectV1().Projects().Get(ctx, user, metav1.GetOptions{})
-				if err != nil {
-					t.Errorf("Expected project %s to be found, but got error: %v", user, err)
-				}
-
-				_, err = controller.rbacClient.RoleBindings(user).Get(ctx, expectedRoleBindingName, metav1.GetOptions{})
-				if err != nil {
-					t.Errorf("Expected RoleBinding %s to be found, but got error: %v", expectedRoleBindingName, err)
-				}
-			}
-
-			if tt.shouldError && errorCount == 0 {
-				t.Errorf("Expected case '%s' to receive error(s)", tt.name)
-			}
-		})
-	}
-}
-
 func TestController_createRoleBinding(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -616,6 +277,345 @@ func TestController_createRoleBinding(t *testing.T) {
 
 			if tt.shouldError && errorCount == 0 {
 				t.Errorf("Expected case '%s' to receive error(s)", tt.name)
+			}
+		})
+	}
+}
+
+func TestController_createUserProject(t *testing.T) {
+	tests := []struct {
+		name             string
+		users            []string
+		existingProjects []string
+		shouldError      bool
+	}{
+		{
+			name:  "Create projects for target users",
+			users: []string{"bob", "john", "sarah"},
+		},
+		{
+			name:             "Create projects for target users along existing projects",
+			users:            []string{"bob", "john", "sarah"},
+			existingProjects: []string{"bob-dev", "ai-dev", "workspace"},
+		},
+		{
+			name:             "Attempt to create an existing project",
+			users:            []string{"bob"},
+			existingProjects: []string{"bob"},
+			shouldError:      true,
+		},
+		{
+			name:             "Attempt to create existing projects",
+			users:            []string{"bob", "john"},
+			existingProjects: []string{"bob", "john"},
+			shouldError:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create addedUsers
+			addedUsers := make(map[string]bool)
+			for _, user := range tt.users {
+				addedUsers[user] = false
+			}
+
+			// Create addedProjects
+			addedProjects := make(map[string]bool)
+			for _, project := range tt.existingProjects {
+				addedProjects[project] = false
+			}
+
+			// Create fake user objects and their project/namespace objects
+			var userObjects []runtime.Object
+			for _, user := range tt.users {
+				if !addedUsers[user] {
+					userObjects = append(userObjects, &userv1.User{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: user,
+						},
+					})
+					addedUsers[user] = true
+				}
+			}
+
+			// Create fake existing project/namespace objects
+			var projectObjects []runtime.Object
+			var namespaceObjects []runtime.Object
+			for _, project := range tt.existingProjects {
+				if !addedProjects[project] {
+					projectObjects = append(projectObjects, &projectv1.Project{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: project,
+						},
+					})
+					namespaceObjects = append(namespaceObjects, &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: project,
+						},
+					})
+					addedProjects[project] = true
+				}
+			}
+
+			// Create fake clients
+			userClient := userfake.NewSimpleClientset(userObjects...)
+			projectClient := projectfake.NewSimpleClientset(projectObjects...)
+			rbacClient := fake.NewSimpleClientset(namespaceObjects...).RbacV1()
+
+			// Create controller
+			controller := &Controller{
+				userClient:    userClient,
+				projectClient: projectClient,
+				rbacClient:    rbacClient,
+			}
+
+			errorCount := 0
+			for _, user := range tt.users {
+				expectedRoleBindingName := fmt.Sprintf("%s-edit", user)
+				err := controller.createUserProject(user)
+				if !tt.shouldError && err != nil {
+					t.Errorf("Expected project %s to be created, but got error: %v", user, err)
+					continue
+				} else if tt.shouldError && err != nil {
+					errorCount += 1
+					continue
+				}
+
+				_, err = controller.projectClient.ProjectV1().Projects().Get(ctx, user, metav1.GetOptions{})
+				if err != nil {
+					t.Errorf("Expected project %s to be found, but got error: %v", user, err)
+				}
+
+				_, err = controller.rbacClient.RoleBindings(user).Get(ctx, expectedRoleBindingName, metav1.GetOptions{})
+				if err != nil {
+					t.Errorf("Expected RoleBinding %s to be found, but got error: %v", expectedRoleBindingName, err)
+				}
+			}
+
+			if tt.shouldError && errorCount == 0 {
+				t.Errorf("Expected case '%s' to receive error(s)", tt.name)
+			}
+		})
+	}
+}
+
+func TestController_handleGroup(t *testing.T) {
+	tests := []struct {
+		name             string
+		oldGroup         *userv1.Group
+		newGroup         *userv1.Group
+		existingProjects []string
+		expectedCreated  []string
+		expectedDeleted  []string
+		shouldError      bool
+	}{
+		{
+			name:     "group creation with users",
+			oldGroup: nil,
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-group",
+				},
+				Users: []string{"alice", "bob"},
+			},
+			existingProjects: []string{},
+			expectedCreated:  []string{"alice", "bob"},
+			expectedDeleted:  []string{},
+		},
+		{
+			name:     "group creation empty",
+			oldGroup: nil,
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-group",
+				},
+				Users: []string{},
+			},
+			existingProjects: []string{},
+			expectedCreated:  []string{},
+			expectedDeleted:  []string{},
+		},
+		{
+			name: "user added to group",
+			oldGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "1",
+				},
+				Users: []string{"alice"},
+			},
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "2",
+				},
+				Users: []string{"alice", "bob"},
+			},
+			existingProjects: []string{},
+			expectedCreated:  []string{"bob"},
+			expectedDeleted:  []string{},
+		},
+		{
+			name: "user removed from group",
+			oldGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "1",
+				},
+				Users: []string{"alice", "bob"},
+			},
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "2",
+				},
+				Users: []string{"alice"},
+			},
+			existingProjects: []string{"bob"},
+			expectedCreated:  []string{},
+			expectedDeleted:  []string{"bob"},
+		},
+		{
+			name: "users added and removed",
+			oldGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "1",
+				},
+				Users: []string{"alice", "charlie"},
+			},
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "2",
+				},
+				Users: []string{"alice", "bob"},
+			},
+			existingProjects: []string{"charlie"},
+			expectedCreated:  []string{"bob"},
+			expectedDeleted:  []string{"charlie"},
+		},
+		{
+			name: "no changes",
+			oldGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "1",
+				},
+				Users: []string{"alice"},
+			},
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            "test-group",
+					ResourceVersion: "2",
+				},
+				Users: []string{"alice"},
+			},
+			existingProjects: []string{},
+			expectedCreated:  []string{},
+			expectedDeleted:  []string{},
+		},
+		{
+			name:     "project already exists",
+			oldGroup: nil,
+			newGroup: &userv1.Group{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "test-group",
+				},
+				Users: []string{"alice"},
+			},
+			existingProjects: []string{"alice"},
+			expectedCreated:  []string{}, // Won't create because it already exists
+			expectedDeleted:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+
+			// Create fake clients
+			var projectObjects []runtime.Object
+			var namespaceObjects []runtime.Object
+			for _, projectName := range tt.existingProjects {
+				projectObjects = append(projectObjects, &projectv1.Project{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: projectName,
+					},
+				})
+				namespaceObjects = append(namespaceObjects, &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: projectName,
+					},
+				})
+			}
+
+			userClient := userfake.NewSimpleClientset()
+			projectClient := projectfake.NewSimpleClientset(projectObjects...)
+			rbacClient := fake.NewSimpleClientset(namespaceObjects...).RbacV1()
+
+			// Create controller
+			controller := &Controller{
+				userClient:    userClient,
+				projectClient: projectClient,
+				rbacClient:    rbacClient,
+			}
+
+			// Call handleGroup
+			controller.handleGroup(tt.oldGroup, tt.newGroup)
+
+			// Verify created projects
+			for _, expectedProject := range tt.expectedCreated {
+				_, err := projectClient.ProjectV1().Projects().Get(ctx, expectedProject, metav1.GetOptions{})
+				if err != nil {
+					t.Errorf("Expected project %s to be created, but got error: %v", expectedProject, err)
+				}
+			}
+
+			// Verify deleted projects
+			for _, expectedDeleted := range tt.expectedDeleted {
+				_, err := projectClient.ProjectV1().Projects().Get(ctx, expectedDeleted, metav1.GetOptions{})
+				if !errors.IsNotFound(err) {
+					t.Errorf("Expected project %s to be deleted, but it still exists", expectedDeleted)
+				}
+			}
+
+			// Verify projects that should still exist
+			allProjects, err := projectClient.ProjectV1().Projects().List(ctx, metav1.ListOptions{})
+			if err != nil {
+				t.Fatalf("Failed to list projects: %v", err)
+			}
+
+			// Count expected projects after operations
+			expectedProjects := make(map[string]bool)
+
+			// Start with existing projects
+			for _, proj := range tt.existingProjects {
+				expectedProjects[proj] = true
+			}
+
+			// Add created projects
+			for _, proj := range tt.expectedCreated {
+				expectedProjects[proj] = true
+			}
+
+			// Remove deleted projects
+			for _, proj := range tt.expectedDeleted {
+				delete(expectedProjects, proj)
+			}
+
+			if len(allProjects.Items) != len(expectedProjects) {
+				t.Errorf("Expected %d projects after operations, but got %d", len(expectedProjects), len(allProjects.Items))
+			}
+
+			// Verify each remaining project is expected
+			for _, project := range allProjects.Items {
+				if !expectedProjects[project.Name] {
+					t.Errorf("Unexpected project %s found after operations", project.Name)
+				}
 			}
 		})
 	}
