@@ -148,7 +148,6 @@ func TestController_createRoleBinding(t *testing.T) {
 					project: "ai-dev",
 				},
 			},
-			shouldError: true,
 		},
 		{
 			name: "Attempt to create two RoleBindings for the same project",
@@ -302,13 +301,11 @@ func TestController_createUserProject(t *testing.T) {
 			name:             "Attempt to create an existing project",
 			users:            []string{"bob"},
 			existingProjects: []string{"bob"},
-			shouldError:      true,
 		},
 		{
 			name:             "Attempt to create existing projects",
 			users:            []string{"bob", "john"},
 			existingProjects: []string{"bob", "john"},
-			shouldError:      true,
 		},
 	}
 
@@ -374,7 +371,6 @@ func TestController_createUserProject(t *testing.T) {
 
 			errorCount := 0
 			for _, user := range tt.users {
-				expectedRoleBindingName := fmt.Sprintf("%s-edit", user)
 				err := controller.createUserProject(user)
 				if !tt.shouldError && err != nil {
 					t.Errorf("Expected project %s to be created, but got error: %v", user, err)
@@ -387,11 +383,6 @@ func TestController_createUserProject(t *testing.T) {
 				_, err = controller.projectClient.ProjectV1().Projects().Get(ctx, user, metav1.GetOptions{})
 				if err != nil {
 					t.Errorf("Expected project %s to be found, but got error: %v", user, err)
-				}
-
-				_, err = controller.rbacClient.RoleBindings(user).Get(ctx, expectedRoleBindingName, metav1.GetOptions{})
-				if err != nil {
-					t.Errorf("Expected RoleBinding %s to be found, but got error: %v", expectedRoleBindingName, err)
 				}
 			}
 

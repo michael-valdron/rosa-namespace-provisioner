@@ -137,32 +137,8 @@ func (c *Controller) handleGroup(oldGroup, newGroup *userv1.Group) {
 
 		// For each added user, check if a project exists with the same name as the user
 		for _, user := range addedUsers {
-			roleBindingName := fmt.Sprintf("%s-edit", user)
-
-			// Check if a project exists with the same name as the user
-			_, err := c.projectClient.ProjectV1().Projects().Get(context.Background(), user, metav1.GetOptions{})
-			if err != nil {
-				if errors.IsNotFound(err) {
-					klog.Infof("Project %s not found for user %s", user, user)
-					_ = c.createUserProject(user)
-				} else {
-					// Just log the error for now
-					klog.Errorf("Error checking if project exists for user %s: %v", user, err)
-				}
-			} else {
-				klog.Infof("Project %s already exists for user %s", user, user)
-
-				_, err := c.rbacClient.RoleBindings(user).Get(context.Background(), roleBindingName, metav1.GetOptions{})
-				if err != nil {
-					if errors.IsNotFound(err) {
-						klog.Infof("RoleBinding %s not found for user %s under project %s", roleBindingName, user, user)
-						_ = c.createRoleBinding(user, user)
-					} else {
-						klog.Errorf("Error checking if RoleBinding exists for user %s under project %s: %v", user, user, err)
-					}
-				} else {
-					klog.Infof("RoleBinding %s under project %s already exist for user %s", roleBindingName, user, user)
-				}
+			if err := c.createUserProject(user); err == nil {
+				_ = c.createRoleBinding(user, user)
 			}
 		}
 	}
@@ -199,15 +175,28 @@ func (c *Controller) createUserProject(user string) error {
 			Name: user,
 		},
 	}
-	_, err := c.projectClient.ProjectV1().Projects().Create(context.Background(), project, metav1.CreateOptions{})
+	// Check if a project exists with the same name as the user
+	_, err := c.projectClient.ProjectV1().Projects().Get(context.Background(), project.Name, metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error creating project for user %s: %v", user, err)
-		return err
+		if errors.IsNotFound(err) {
+			klog.Infof("Project %s not found for user %s", project.Name, user)
+			_, err := c.projectClient.ProjectV1().Projects().Create(context.Background(), project, metav1.CreateOptions{})
+			if err != nil {
+				klog.Errorf("Error creating project for user %s: %v", user, err)
+				return err
+			} else {
+				klog.Infof("Successfully created project %s for user %s", project.Name, user)
+			}
+		} else {
+			// Just log the error for now
+			klog.Errorf("Error checking if project exists for user %s: %v", user, err)
+			return err
+		}
 	} else {
-		klog.Infof("Successfully created project %s for user %s", user, user)
-
-		return c.createRoleBinding(user, user)
+		klog.Infof("Project %s already exists for user %s", project.Name, user)
 	}
+
+	return nil
 }
 
 // Creates user project RoleBinding for edit permissions
@@ -231,14 +220,40 @@ func (c *Controller) createRoleBinding(user string, projectName string) error {
 		},
 	}
 
-	_, err := c.rbacClient.RoleBindings(projectName).Create(context.Background(), roleBinding, metav1.CreateOptions{})
+	existingRoleBinding, err := c.rbacClient.RoleBindings(projectName).Get(context.Background(), roleBinding.Name, metav1.GetOptions{})
 	if err != nil {
-		klog.Errorf("Error creating edit RoleBinding for user %s under project %s: %v", user, projectName, err)
-		return err
+		if errors.IsNotFound(err) {
+			klog.Infof("RoleBinding %s not found for user %s under project %s", roleBinding.Name, user, projectName)
+
+			_, err := c.rbacClient.RoleBindings(projectName).Create(context.Background(), roleBinding, metav1.CreateOptions{})
+			if err != nil {
+				klog.Errorf("Error creating edit RoleBinding for user %s under project %s: %v", user, projectName, err)
+				return err
+			} else {
+				klog.Infof("Successfully created edit RoleBinding %s for user %s under project %s", roleBinding.Name, user, projectName)
+			}
+		} else {
+			klog.Errorf("Error checking if RoleBinding exists for user %s under project %s: %v", user, projectName, err)
+			return err
+		}
 	} else {
-		klog.Infof("Successfully created edit RoleBinding %s for user %s under project %s", roleBinding.Name, user, projectName)
-		return nil
+		// error if existing RoleBinding is not owned
+		for _, subject := range existingRoleBinding.Subjects {
+			if subject.Kind == "User" && subject.Name != user {
+				err := fmt.Errorf("RoleBinding %s under project %s already belongs to user %s and cannot be assigned to user %s",
+					existingRoleBinding.Name,
+					projectName,
+					subject.Name,
+					user,
+				)
+				klog.Error(err)
+				return err
+			}
+		}
+		klog.Infof("RoleBinding %s under project %s already exist for user %s", roleBinding.Name, user, projectName)
 	}
+
+	return nil
 }
 
 // Run starts the controller and blocks until the context is cancelled
