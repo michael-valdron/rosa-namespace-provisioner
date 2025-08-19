@@ -9,6 +9,7 @@ import (
 	projectclient "github.com/openshift/client-go/project/clientset/versioned"
 	userclient "github.com/openshift/client-go/user/clientset/versioned"
 	"github.com/redhat-ai-dev/rosa-namespace-provisioner/pkg/controller"
+	rbacv1client "k8s.io/client-go/kubernetes/typed/rbac/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog/v2"
@@ -48,8 +49,14 @@ func main() {
 		klog.Fatalf("Failed to create OpenShift project client: %v", err)
 	}
 
+	// Create the RBAC client
+	rbacClient, err := rbacv1client.NewForConfig(config)
+	if err != nil {
+		klog.Fatalf("Failed to create RBAC client: %v", err)
+	}
+
 	// Create and start the controller
-	ctrl := controller.NewController(userClient, projectClient)
+	ctrl := controller.NewController(userClient, projectClient, rbacClient)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
